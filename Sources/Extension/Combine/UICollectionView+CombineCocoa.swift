@@ -12,10 +12,10 @@ import CombineCocoa
 
 extension UICollectionView {
     /// 선택한 셀의 모델 퍼블리셔
-    func selectedModelPublisher<Section, Item>(
-        dataSource: UICollectionViewDiffableDataSource<Section, Item>?
-    ) -> AnyPublisher<Item, Never> where Item: Hashable {
-        self.didSelectItemPublisher
+    func selectedModelPublisher<Section: Sendable, Item: Sendable & Hashable>(
+        _ dataSource: UICollectionViewDiffableDataSource<Section, Item>?
+    ) -> AnyPublisher<Item, Never> {
+        didSelectItemPublisher
             .compactMap { [weak dataSource] in dataSource?.itemIdentifier(for: $0) }
             .eraseToAnyPublisher()
     }
