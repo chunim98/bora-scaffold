@@ -53,13 +53,9 @@ class RxConfirmAlertVC: AlertVC {
     
     // MARK: Life Cycle
     
-    init(acceptOnly: Bool = true) {
+    init(acceptOnly: Bool) {
         cancelButton.isHidden = acceptOnly
         super.init(nibName: nil, bundle: nil)
-    }
-    
-    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
-        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
     }
     
     @MainActor required init?(coder: NSCoder) {
