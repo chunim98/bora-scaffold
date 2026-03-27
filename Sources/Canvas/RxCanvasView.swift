@@ -8,10 +8,13 @@
 import UIKit
 
 import RxSwift
+import RxCocoa
 
 final class RxCanvasView: UIView {
     
     // MARK: Properties
+    
+    private let bag = DisposeBag()
     
     /// 사용자가 그린 전체 드로잉 경로를 누적 관리
     private let drawingPath = UIBezierPath()
@@ -29,21 +32,28 @@ final class RxCanvasView: UIView {
     
     // MARK: Components
     
+    /// 터치 즉시 드로잉을 시작하기 위한 입력 제스처
+    /// - 롱프레스가 아니라 즉시 반응하는 드래그/드로잉 입력 제스처로 튜닝됨
+    let drawingGesture = {
+        let gesture = UILongPressGestureRecognizer()
+        gesture.allowableMovement = .greatestFiniteMagnitude
+        gesture.numberOfTouchesRequired = 1
+        gesture.minimumPressDuration = 0
+        gesture.cancelsTouchesInView = false
+        gesture.delaysTouchesBegan = false
+        gesture.delaysTouchesEnded = false
+        return gesture
+    }()
+    
     /// 드로잉 경로를 화면에 렌더링하는 Shape Layer
     let strokeLayer = {
         let layer = CAShapeLayer()
-        // 드로잉 색상 적용
         layer.strokeColor = UIColor.label.cgColor
-        // 내부 채움 없이 경로만 렌더링
-        layer.fillColor = nil
-        // 드로잉 두께 적용
-        layer.lineWidth = 2.5
-        // 시작점과 끝점을 둥글게 처리
-        layer.lineCap = .round
-        // 경로가 꺾이는 지점을 부드럽게 연결
-        layer.lineJoin = .round
-        // 화면 배율 기준 렌더링 품질 설정
         layer.contentsScale = UIScreen.main.scale
+        layer.fillColor = nil
+        layer.lineWidth = 2.5
+        layer.lineCap = .round
+        layer.lineJoin = .round
         return layer
     }()
     
@@ -53,6 +63,7 @@ final class RxCanvasView: UIView {
         super.init(frame: frame)
         setupDefaults()
         setupLayout()
+        setupBindings()
     }
     
     required init?(coder: NSCoder) {
@@ -68,25 +79,35 @@ final class RxCanvasView: UIView {
     // MARK: Defaults
     
     private func setupDefaults() {
-        isMultipleTouchEnabled = false
+        addGestureRecognizer(drawingGesture)
         clipsToBounds = true
     }
     
     // MARK: Layout
     
-    private func setupLayout() {
-        layer.addSublayer(strokeLayer)
+    private func setupLayout() { layer.addSublayer(strokeLayer) }
+    
+    // MARK: Bindings
+    
+    private func setupBindings() {
+        drawingGesture.rx.event
+            .bind(with: self) { owner, gesture in
+                let point = gesture.location(in: owner)
+                
+                switch gesture.state {
+                case .began: owner.beginStroke(at: point)
+                case .changed: owner.appendStroke(at: point)
+                case .ended, .cancelled, .failed: owner.finishStroke()
+                default: break
+                }
+            }
+            .disposed(by: bag)
     }
     
-    // MARK: Touch Handling
+    // MARK: Gesture Handling
     
-    /// 첫 터치 시 새로운 드로잉 경로 시작
-    override func touchesBegan(_ touches: Set<UITouch>, with _: UIEvent?) {
-        // 시작 터치 존재 여부 확인
-        guard let touch = touches.first else { return }
-        
-        // 현재 뷰 기준 첫 터치 좌표 추출
-        let point = touch.location(in: self)
+    /// 첫 드로잉 입력 시 새로운 경로 시작
+    private func beginStroke(at point: CGPoint) {
         // 새 드로잉 시작용 좌표 버퍼 초기화
         sampledPoints = [point]
         // 현재 좌표를 Path 시작점으로 이동
@@ -95,21 +116,10 @@ final class RxCanvasView: UIView {
         strokeLayer.path = drawingPath.cgPath
     }
     
-    /// 터치 이동 시 샘플링 좌표 반영 처리
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // 기준 터치 존재 여부 확인
-        guard let touch = touches.first else { return }
-        
-        // coalescedTouches 기반 촘촘한 좌표 수집
-        let coalescedTouches = event?.coalescedTouches(for: touch) ?? [touch]
-        
-        // 샘플링된 모든 터치의 순차 반영
-        for touch in coalescedTouches {
-            // 현재 뷰 기준 터치 좌표 변환
-            let point = touch.location(in: self)
-            // 단일 좌표의 Path 보간 로직 전달
-            appendPointToPath(point)
-        }
+    /// 드로잉 이동 시 샘플링 좌표 반영 처리
+    private func appendStroke(at point: CGPoint) {
+        // 단일 좌표의 Path 보간 로직 전달
+        appendPointToPath(point)
         
         // 누적된 Path의 Layer 반영
         strokeLayer.path = drawingPath.cgPath
@@ -117,17 +127,8 @@ final class RxCanvasView: UIView {
         isEmptySubject.onNext(false)
     }
     
-    /// 터치 종료 시 임시 좌표 정리 처리
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // 실질적으로 무언가 그려진 상태면, 드로잉 결과 이미지 외부로 전달 (포인트 1개는 그린 게 아님)
-        if sampledPoints.count > 1 { drawingImageSubject.onNext(makeImage()) }
-        
-        // 다음 입력 영향 방지를 위한 좌표 버퍼 초기화
-        sampledPoints.removeAll()
-    }
-    
-    /// 터치 취소 시 내부 상태 정리 처리
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    /// 드로잉 종료 시 내부 상태 정리 처리
+    private func finishStroke() {
         // 실질적으로 무언가 그려진 상태면, 드로잉 결과 이미지 외부로 전달 (포인트 1개는 그린 게 아님)
         if sampledPoints.count > 1 { drawingImageSubject.onNext(makeImage()) }
         
