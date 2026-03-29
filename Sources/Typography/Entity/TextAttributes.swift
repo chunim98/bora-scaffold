@@ -8,7 +8,7 @@
 import UIKit
 
 /// AttributedString을 구성하는 텍스트 속성 정의
-struct TextAttributes: Hashable {
+struct TextAttributes {
     
     // MARK: Metric
     
@@ -30,31 +30,8 @@ struct TextAttributes: Hashable {
     var paragraphSpacing: CGFloat?
     var underlineStyle: NSUnderlineStyle?
     var underlineColor: UIColor?
-    var lineBreakMode: NSLineBreakMode?
-    
-    // MARK: Initializer
-    
-    init(
-        font: UIFont = .preferredFont(forTextStyle: .body),
-        foregroundColor: UIColor? = nil,
-        alignment: NSTextAlignment? = .natural,
-        lineHeight: Metric? = nil,
-        letterSpacing: Metric? = nil,
-        paragraphSpacing: CGFloat? = nil,
-        underlineStyle: NSUnderlineStyle? = nil,
-        underlineColor: UIColor? = nil,
-        lineBreakMode: NSLineBreakMode? = nil
-    ) {
-        self.font = font
-        self.foregroundColor = foregroundColor
-        self.alignment = alignment
-        self.lineHeight = lineHeight
-        self.letterSpacing = letterSpacing
-        self.paragraphSpacing = paragraphSpacing
-        self.underlineStyle = underlineStyle
-        self.underlineColor = underlineColor
-        self.lineBreakMode = lineBreakMode
-    }
+    var lineBreakMode: NSLineBreakMode? = .byTruncatingTail
+    var lineBreakStrategy: NSParagraphStyle.LineBreakStrategy? = .hangulWordPriority
 }
 
 // MARK: Mappers
@@ -71,6 +48,7 @@ extension TextAttributes {
         paragraphSpacing.map    { paragraphStyle.paragraphSpacing = $0 }
         alignment.map           { paragraphStyle.alignment = $0 }
         lineBreakMode.map       { paragraphStyle.lineBreakMode = $0 }
+        lineBreakStrategy.map   { paragraphStyle.lineBreakStrategy = $0 }
         foregroundColor.map { attributes[.foregroundColor] = $0 }
         underlineStyle.map  { attributes[.underlineStyle] = $0.rawValue }
         underlineColor.map  { attributes[.underlineColor] = $0 }
