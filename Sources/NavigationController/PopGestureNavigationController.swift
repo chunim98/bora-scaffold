@@ -29,10 +29,8 @@ final class PopGestureNavigationController: UINavigationController {
     private func setupDefaults() {
         if #available(iOS 26.0, *) {
             interactiveContentPopGestureRecognizer?.delegate = self
-            interactivePopGestureRecognizer?.isEnabled = false
-        } else {
-            interactivePopGestureRecognizer?.delegate = self
         }
+        interactivePopGestureRecognizer?.delegate = self
     }
 }
 
