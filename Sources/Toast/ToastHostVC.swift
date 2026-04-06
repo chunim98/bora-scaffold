@@ -7,12 +7,15 @@
 
 import UIKit
 
+import RxSwift
+import RxCocoa
 import SnapKit
 
 final class ToastHostVC: UIViewController {
     
     // MARK: Properties
     
+    private let bag = DisposeBag()
     
     // MARK: Components
     
@@ -22,21 +25,9 @@ final class ToastHostVC: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = .clear
         setupLayout()
-        toastView.descriptionLabel.text = "계좌는 최대 3개까지만 등록 가능합니다.\n일단 개행 쪽도 테스트 해봐야 해용.\n그럼 3줄 째는 어떨까요?"
-        
-//        Task { @MainActor in
-//            try? await Task.sleep(for: .seconds(1))
-//            toastView.updateHidden(true)
-//            try? await Task.sleep(for: .seconds(1))
-//            toastView.updateHidden(false)
-//            try? await Task.sleep(for: .seconds(1))
-//            toastView.updateHidden(true)
-//            try? await Task.sleep(for: .seconds(1))
-//            toastView.updateHidden(false)
-//            try? await Task.sleep(for: .seconds(1))
-//            toastView.updateHidden(true)
-//        }
+        setupBindings()
     }
     
     // MARK: Layout
@@ -52,11 +43,33 @@ final class ToastHostVC: UIViewController {
     
     // MARK: Bindings
     
-    private func setupBindings() {}
+    private func setupBindings() {
+        /// 토스트 노출 트리거
+        let presentTrigger = ToastBus.shared.rx.presentTrigger
+        
+        /// 토스트 숨김 트리거
+        let dismissTrigger = presentTrigger
+            .debounce(.seconds(3), scheduler: MainScheduler.instance)
+            .map { _ in }
+        
+        // 주어진 텍스트로 토스트 노출, 만약 이미 노출 중이면 텍스트만 갱신
+        presentTrigger
+            .bind(with: self) { owner, message in
+                owner.toastView.descriptionLabel.text = message
+                
+                guard owner.toastView.isHidden else { return }
+                owner.toastView.present()
+            }
+            .disposed(by: bag)
+        
+        // 일정 시간 경과 후, 자동 닫힘
+        dismissTrigger
+            .bind { [weak self] in self?.toastView.dismiss() }
+            .disposed(by: bag)
+    }
 }
 
 // MARK: - Preview
 
-import SwiftUI
 @available(iOS 17.0, *)
 #Preview { ToastHostVC() }

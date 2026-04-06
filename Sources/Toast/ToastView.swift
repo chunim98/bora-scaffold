@@ -15,7 +15,7 @@ final class ToastView: UIStackView {
     
     // MARK: Components
     
-    let panGesture = UIPanGestureRecognizer()
+    private let panGesture = UIPanGestureRecognizer()
     
     /// 그림자 레이어 1
     private let firstShadowLayer = {
@@ -87,17 +87,14 @@ final class ToastView: UIStackView {
     // MARK: Defaults
     
     private func setupDefaults() {
-        addGestureRecognizer(panGesture)
-        // 토스트는 별도 swipe recognizer를 두지 않고,
-        // 하나의 pan gesture 안에서 "미세한 끌림"과 "아래 플릭 dismiss"를 함께 처리한다.
-        // 드래그 중에는 토스트가 손가락 방향으로 조금만 따라오고,
-        // 제스처 종료 시점의 y축 속도가 충분히 크면 아래로 쓸어내린 것으로 간주해 닫는다.
-        panGesture.addTarget(self, action: #selector(handlePanGesture(_:)))
+        inset = .init(horizontal: 20, vertical: 12)
+        isHidden = true
+        spacing = 12
         
+        addGestureRecognizer(panGesture)
         layer.cornerRadius = cornerRadius
         
-        inset = .init(horizontal: 20, vertical: 12)
-        spacing = 12
+        panGesture.addTarget(self, action: #selector(handlePanGesture(_:)))
     }
     
     // MARK: Layout
@@ -132,70 +129,47 @@ final class ToastView: UIStackView {
         backgroundLayer.path = path
     }
     
-    /// 토스트의 표시/숨김 상태를 애니메이션과 함께 갱신
-    func updateHidden(_ hidden: Bool, offset: CGFloat = .zero) {
-        // 사용자 인터렉션 허용 여부 할당
-        isUserInteractionEnabled = !hidden
-        
-        UIView.animate(
-            withDuration: 0.32,
-            delay: 0,
-            options: [
-                .curveEaseInOut,
-                .beginFromCurrentState,
-                .allowUserInteraction
-            ]
-        ) { [weak self] in
-            guard let self else { return }
-            // 아래로 살짝 밀어내며 fade out, 다시 나타날 땐 원위치로 복귀한다.
-            transform = hidden
-            ? .init(translationX: 0, y: frame.height/3 + offset)
-            : .identity
-            alpha = hidden ? 0 : 1
-        }
-    }
-    
-    @objc
-    private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
-        /// 드래그 이동량
-        let translation = gesture.translation(in: self)
-        /// 드래그 가속도
-        let velocity = gesture.velocity(in: self)
-        
+    /// 토스트에 연결된 pan 제스처를 처리
+    /// - 아래로 스와이프 dismiss와 드래그 저항 애니메이션을 적용함
+    @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began, .changed:
-            guard !isHidden else { return }
+            /// 현재 pan 기준 누적 이동 거리
+            let translation = gesture.translation(in: self)
             
-            /// 방향에 따라 허용할 최대 y축 이동량
-            /// - 토스트가 아래로는 더 많이, 위로는 아주 조금만 따라오도록 제한
+            /// 토스트가 따라오는 최대 범위
+            /// - 아래로 내릴 때는 자연스럽게 더 많이, 위로 밀 때는 거의 움직이지 않게 제한
             let verticalLimit: CGFloat = translation.y > 0 ? 32 : 4
             
-            /// 드래그할수록 점점 덜 따라오게 만드는 저항값
+            /// 드래그 거리가 커질수록 실제 이동량 증가폭이 줄어들도록 감쇠를 주는 기준값
             let resistance: CGFloat = 72
             
-            /// 감쇠가 적용된 최종 y축 이동값
+            /// 손가락 이동량을 그대로 쓰지 않고 비선형 감쇠를 적용해서
+            /// 토스트가 살짝 버티는 느낌으로 따라오게 만듦
             let dampedY = translation.y
             / (abs(translation.y) + resistance)
             * verticalLimit
             
+            /// x축 이동은 무시하고 y축만 반영해 토스트를 수직으로만 끌어내림
             transform = .init(translationX: 0, y: dampedY)
             
         case .ended, .cancelled, .failed:
-            if velocity.y > 500 {
-                updateHidden(true, offset: max(transform.ty, 0))
+            /// 손을 떼는 순간 dismiss 여부를 판단할 때 사용할 속도값
+            let velocity = gesture.velocity(in: self)
+            
+            /// 아래 방향 속도가 충분히 크면 사용자가 닫으려는 의도로 보고 바로 dismiss
+            if velocity.y > 300 {
+                dismiss(offset: max(transform.ty, 0))
                 return
             }
             
+            /// dismiss 조건을 넘지 못하면 스프링 애니메이션으로 원래 위치로 복귀
             UIView.animate(
                 withDuration: 0.32,
                 delay: 0,
                 usingSpringWithDamping: 0.7,
                 initialSpringVelocity: 0,
-                options: [
-                    .curveEaseOut,
-                    .beginFromCurrentState,
-                    .allowUserInteraction
-                ]
+                options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
             ) { [weak self] in
                 self?.transform = .identity
             }
@@ -204,4 +178,46 @@ final class ToastView: UIStackView {
             break
         }
     }
+    
+    // MARK: Public Method
+    
+    /// 토스트가 아래에서 위로 올라오며 페이드 인
+    func present() {
+        // 애니메이션 시작 전 상태 설정
+        transform = .init(translationX: 0, y: frame.height/3)
+        isUserInteractionEnabled = false
+        isHidden = false
+        alpha = 0
+        
+        UIView.animate(
+            withDuration: 0.32,
+            delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) { [weak self] in
+            self?.transform = .identity
+            self?.alpha = 1
+            
+        } completion: { [weak self] _ in
+            self?.isUserInteractionEnabled = true
+        }
+    }
+    
+    /// 토스트가 아래로 내리며 페이드 아웃
+    func dismiss(offset: CGFloat = .zero) {
+        isUserInteractionEnabled = false
+        
+        UIView.animate(
+            withDuration: 0.32,
+            delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) { [weak self] in
+            guard let self else { return }
+            transform = .init(translationX: 0, y: frame.height/3 + offset)
+            alpha = 0
+            
+        } completion: { [weak self] _ in
+            self?.isHidden = true
+        }
+    }
 }
+
